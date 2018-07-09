@@ -20,11 +20,11 @@ class Window(Frame):
     INITIAL_HEIGHT = 768
     INITIAL_WIDTH = 1024
     IMAGE_DIR="images"
-    DB_IMAGE_HEIGHT = 16*30
-    DB_IMAGE_WIDTH = 9*30
+    DB_IMAGE_HEIGHT = 12*45
+    DB_IMAGE_WIDTH = 16*45
     DB_FILE_NAME = "h5.db"
 
-    def __init__(self, master=None):
+    def __init__(self, entities, master=None):
         self.current_image_index = -1
         self.original = None
         self.image = None
@@ -34,37 +34,25 @@ class Window(Frame):
         self.show_cv2_image = False
         self.height = self.INITIAL_HEIGHT
         self.width = self.INITIAL_WIDTH
+        self.entities = entities
+        self.entityCheckBoxes = {}
+        self.image_presences = {}
         for _,_,filenames in os.walk(os.getcwd() + os.sep + self.IMAGE_DIR):
             self.filenames = filenames
 
         self.database = H5ImageDatabase(len(self.filenames), self.DB_IMAGE_HEIGHT, self.DB_IMAGE_WIDTH, 
                                         os.getcwd()+os.sep+self.DB_FILE_NAME)
-        self._reset_image_presences()
-
         Frame.__init__(self, master)
         self.button_bar = Label(self, text="Label TEXT")
         self.bind("<Configure>", self.resize)
-        self.em_butt = Checkbutton(self.button_bar, text="Emma", variable=self.image_presences["emma"],
+
+        for entity in self.entities:
+            self.image_presences[entity] = IntVar(value=0)
+        for entity in self.entities:
+            self.entityCheckBoxes[entity] = Checkbutton(self.button_bar, text=entity, variable=self.image_presences[entity],
                                    offvalue=False, onvalue=True, anchor=W)
-        self.em_butt.pack(side=LEFT)   
-        self.jacob_butt = Checkbutton(self.button_bar, text="Jacob", variable=self.image_presences["jacob"],
-                                   offvalue=False, onvalue=True, anchor=W)
-        self.jacob_butt.pack(side=LEFT)   
-        self.mim_butt = Checkbutton(self.button_bar, text="Mim", variable=self.image_presences["mim"],
-                                   offvalue=False, onvalue=True, anchor=W)
-        self.mim_butt.pack(side=LEFT)   
-        self.ga_butt = Checkbutton(self.button_bar, text="Ga", variable=self.image_presences["ga"],
-                                   offvalue=False, onvalue=True, anchor=W)
-        self.ga_butt.pack(side=LEFT)   
-        self.kaiser_butt = Checkbutton(self.button_bar, text="Kaiser", variable=self.image_presences["kaiser"],
-                                   offvalue=False, onvalue=True, anchor=W)
-        self.kaiser_butt.pack(side=LEFT)   
-        self.weenie_butt = Checkbutton(self.button_bar, text="Weenie", variable=self.image_presences["weenie"],
-                                   offvalue=False, onvalue=True, anchor=W)
-        self.weenie_butt.pack(side=LEFT)   
-        self.the_chee_butt = Checkbutton(self.button_bar, text="Archie", variable=self.image_presences["the_chee"],
-                                   offvalue=False, onvalue=True, anchor=W)
-        self.the_chee_butt.pack(side=LEFT)   
+            self.entityCheckBoxes[entity].pack(side=LEFT)   
+        self._reset_image_presences()        
         self.next_butt = Button(self.button_bar, text="Next Image", command=self.next_image, anchor=W)
         self.next_butt.pack(side=LEFT)   
         self.next_and_save_butt = Button(self.button_bar, text="Save and Next Image", command=self.next_image, anchor=W)
@@ -81,9 +69,15 @@ class Window(Frame):
         self.init_window()
 
     def _reset_image_presences(self):
-        self.image_presences = {"emma":IntVar(value=0), "ga":IntVar(value=0), "mim":IntVar(value=0), 
-                                "jacob":IntVar(value=0), "kaiser":IntVar(value=0), "the_chee":IntVar(value=0), 
-                                "weenie":IntVar(value=0)}
+        self.image_presences = {}
+        for entity in self.entities:
+            self.image_presences[entity] = IntVar(value=0)
+            self.entityCheckBoxes[entity].deselect()
+
+    def _get_appropriate_image(self):
+        if (self.show_cv2_image):
+            return self.converted_inage
+        return self.image
 
     def init_window(self):
         self.master.title("Manual Image Classifier")
@@ -100,47 +94,32 @@ class Window(Frame):
 
     def next_image(self):
         self._reset_image_presences()
-        # the graphical part
         self.current_image_index += 1
         filename = os.getcwd() + os.sep + self.IMAGE_DIR + os.sep + self.filenames[self.current_image_index]
         self.original = Image.open(filename)
         self._reset_image_presences()
-        # now the conversion to a format suitable for db and ml
         cv2_im = cv2.imread(filename)
         cv2_im = cv2.resize(cv2_im, (self.database.width, self.database.height), interpolation=cv2.INTER_CUBIC)
         cv2_im = cv2.cvtColor(cv2_im, cv2.COLOR_BGR2RGB)
         self.converted_inage = ImageTk.PhotoImage(Image.fromarray(cv2_im))
-        self.image = ImageTk.PhotoImage(self.original)
-        self.image_on_canvas = self.display.create_image(0, 0, image=self._get_appropriate_image(), 
-                                                         anchor=NW, tags="IMG")
-        self.display.itemconfig(self.image_on_canvas, image = self._get_appropriate_image())
         self.resize(None)
         print("Next image is " + self.filenames[self.current_image_index])
-
-    def _get_appropriate_image(self):
-        if (self.show_cv2_image):
-            return self.converted_inage
-        return self.image
 
     def resize(self, event=None):
         if (event):
             self.height = event.height
             self.width = event.width
-        size = (self.height, self.width)
+        size = (self.width, self.height)
         resized = self.original.resize(size,Image.ANTIALIAS)
         self.image = ImageTk.PhotoImage(resized)
         self.display.config(width=self.width, height=self.height)
-        filename = os.getcwd() + os.sep + self.IMAGE_DIR + os.sep + self.filenames[self.current_image_index]
-        cv2_im = cv2.imread(filename)
-        cv2_im = cv2.resize(cv2_im, (self.database.height, self.database.width), interpolation=cv2.INTER_CUBIC)
-        cv2_im = cv2.cvtColor(cv2_im, cv2.COLOR_BGR2RGB)
-        self.converted_image = ImageTk.PhotoImage(Image.fromarray(cv2_im))
         self.image_on_canvas = self.display.create_image(0, 0, image=self._get_appropriate_image(), 
                                                          anchor=NW, tags="IMG")
         self.display.itemconfig(self.image_on_canvas, image = self._get_appropriate_image())
 
     def toggle_image(self):
         self.show_cv2_image = self.show_cv2_image != True
+        self.resize(None)
 
     def client_exit(self):
         exit()
@@ -155,7 +134,9 @@ class Window(Frame):
             self.owner.image_presences[self.person] = IntVar(value=1)
 
 root=Tk()
-app = Window(root)
+
+entities = ["Irma", "Jakac", "Mim", "Ga", "Kaiser", "The Chee", "Weenie"]
+app = Window(entities, root)
 root.mainloop()
 
 
