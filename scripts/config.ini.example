@@ -1,0 +1,6 @@
+[database]
+imageHeight = 540
+imageWidth  = 720
+image_dir   = "..\images"
+[general]
+enetitiesToLookFor = Irma,Jakac,Mim,Ga,Kaiser,TheChee,Weenie

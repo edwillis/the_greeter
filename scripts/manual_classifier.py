@@ -4,6 +4,7 @@ from PIL import Image,ImageTk
 import numpy as np
 import h5py
 import cv2
+import configparser
 
 class H5ImageDatabase():
 
@@ -19,12 +20,9 @@ class Window(Frame):
 
     INITIAL_HEIGHT = 768
     INITIAL_WIDTH = 1024
-    IMAGE_DIR="images"
-    DB_IMAGE_HEIGHT = 12*45
-    DB_IMAGE_WIDTH = 16*45
     DB_FILE_NAME = "h5.db"
 
-    def __init__(self, entities, master=None):
+    def __init__(self, entities, image_dir, db_image_height, db_image_width, master=None):
         self.current_image_index = -1
         self.original = None
         self.image = None
@@ -34,13 +32,17 @@ class Window(Frame):
         self.show_cv2_image = False
         self.height = self.INITIAL_HEIGHT
         self.width = self.INITIAL_WIDTH
+        self.image_dir="images"
+        self.db_image_height = 12*45
+        self.db_image_width = 16*45
         self.entities = entities
         self.entityCheckBoxes = {}
         self.image_presences = {}
-        for _,_,filenames in os.walk(os.getcwd() + os.sep + self.IMAGE_DIR):
+        self.filenames=[]
+        for _,_,filenames in os.walk(os.getcwd() + os.sep + self.image_dir):
             self.filenames = filenames
 
-        self.database = H5ImageDatabase(len(self.filenames), self.DB_IMAGE_HEIGHT, self.DB_IMAGE_WIDTH, 
+        self.database = H5ImageDatabase(len(self.filenames), self.db_image_height, self.db_image_width, 
                                         os.getcwd()+os.sep+self.DB_FILE_NAME)
         Frame.__init__(self, master)
         self.button_bar = Label(self, text="Label TEXT")
@@ -95,7 +97,7 @@ class Window(Frame):
     def next_image(self):
         self._reset_image_presences()
         self.current_image_index += 1
-        filename = os.getcwd() + os.sep + self.IMAGE_DIR + os.sep + self.filenames[self.current_image_index]
+        filename = os.getcwd() + os.sep + self.image_dir + os.sep + self.filenames[self.current_image_index]
         self.original = Image.open(filename)
         self._reset_image_presences()
         cv2_im = cv2.imread(filename)
@@ -135,8 +137,14 @@ class Window(Frame):
 
 root=Tk()
 
-entities = ["Irma", "Jakac", "Mim", "Ga", "Kaiser", "The Chee", "Weenie"]
-app = Window(entities, root)
+config = configparser.ConfigParser()
+config.read('scripts/config.ini')
+print(config.sections())
+db_image_height = config.get('database', 'imageHeight')
+db_image_width = config.get('database', 'imageWidth')
+image_dir = config.get('database', 'image_dir')
+entities = config.get('general', 'enetitiesToLookFor').split(',')
+app = Window(entities, image_dir, db_image_height, db_image_width, root)
 root.mainloop()
 
 
