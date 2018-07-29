@@ -91,6 +91,7 @@ class Window(Frame):
         self.entityCheckBoxes = {}
         self.image_presences = {}
         self.database = None
+        self.status_text=StringVar()
         self.image_records = {}
         self.filenames=[]
         self.current_filename=None
@@ -111,6 +112,8 @@ class Window(Frame):
         self.next_and_save_butt.pack(side=LEFT)
         self.save_datasets = Button(self.top_button_bar, text="Save Datasets", command=self.save_datasets, anchor=W)
         self.save_datasets.pack(side=LEFT)
+        self.status_label = Label(anchor=W, justify=LEFT, textvariable=self.status_text)
+        self.status_label.pack(side=RIGHT)
 
         self.top_button_bar.pack()     
         self.bottom_button_bar = Label(self)
@@ -148,9 +151,6 @@ class Window(Frame):
     def next_and_save(self):
         self.next_image(save=True)
 
-    #TODO aDD DBSUPPORT
-    # TODO GET SAVING TO H5PY WORKING
-    #TODO GETLOADING FROM H5PY WORKING
     # TODO get splitting into train, dev and dev working
 
     def save_datasets(self):
@@ -216,12 +216,32 @@ class Window(Frame):
         self.converted_image = ImageTk.PhotoImage(Image.fromarray(self.cv2_image))
         self.resize(None)
 
+    def _get_summary_stats(self):
+        stats = {"Unclassified": 0}
+        for entity in self.entities:
+            stats[entity] = 0
+        for k in self.image_records.keys():
+            classes = self.image_records[k].classifications
+            total_classifications = 0
+            for c in classes.keys():
+                stats[c] += classes[c]
+                total_classifications += classes[c]
+            if (total_classifications == 0):
+                stats["Unclassified"] +=1
+        return stats
+
     def resize(self, event=None):
         if (event):
             self.height = event.height
             self.width = event.width
         self.display.config(width=self.width, height=self.height)
         self.image_on_canvas = self.display.create_image(0, 0, image=self.converted_image, anchor=NW, tags="IMG")
+        short_fname = self.current_filename.split(os.sep)[-1]
+        status_text = "File:  " + short_fname + '\n'
+        stats = self._get_summary_stats()
+        for s in stats.keys():
+            status_text += s + ": " + str(stats[s]) + '\n'
+        self.status_text.set(status_text)
 
     def client_exit(self):
         exit()
