@@ -1,6 +1,7 @@
 import os
 from tkinter import *
 from PIL import Image,ImageTk
+from pprint import pprint
 import numpy as np
 import h5py
 import cv2
@@ -8,13 +9,67 @@ import configparser
 
 class H5ImageDatabase():
 
-    def __init__(self, num_entries, image_height, image_width, filepath):
-        input_shape = (num_entries, image_height, image_width, 3)
-        self.height = image_height
-        self.width = image_width
-        self.hdf5_file = h5py.File(filepath, mode='w')
-        self.hdf5_file.create_dataset("inputs", input_shape, np.int8)
-        self.hdf5_file.create_dataset("input_labels", (num_entries, num_entries, num_entries, num_entries, num_entries, num_entries, num_entries), np.int8)
+    def __init__(self, filename):
+        self.filename = filename
+
+    def save(self, datasets):
+        #         datasets = {'training': [self.image_records, len(self.image_records)}
+        self.hdf5_file = h5py.File(self.filename, mode='w')
+        # todo what if dataset is empty
+        for dataset in datasets:
+            grp = self.hdf5_file.create_group(dataset)
+            fname_recs = list(datasets[dataset][0].keys())[:datasets[dataset][1]]
+            fname_recs = [r.encode("ascii", "ignore") for r in fname_recs]
+            # persist the image filenames
+            grp.create_dataset("filenames", data=fname_recs, dtype=h5py.special_dtype(vlen=str))
+            # persist the images themselves (ML inputs)
+            recs = list(datasets[dataset][0].values())[:datasets[dataset][1]]
+            img_recs = [ i.cv2_image for i in recs]
+            img_rec_shape = (len(img_recs), img_recs[0].shape[0], img_recs[0].shape[1], img_recs[0].shape[2])
+            img_dataset = grp.create_dataset("inputs", img_rec_shape, np.uint8)
+            for i in range(len(img_recs)):
+                img_dataset[i, ...] = img_recs[i][None]
+            # persist the classifications (ML outputs)
+            class_recs = [ i.classifications for i in recs]
+            class_rec_shape = (len(class_recs), len(class_recs[0]))
+            cls_dataset = grp.create_dataset("outputs", class_rec_shape, np.uint8)
+            for i in range(len(class_recs)):
+                classes = list(class_recs[i].values())
+                cls_dataset[i] = classes
+        self.hdf5_file.close()
+
+    def load(self, entities):
+        #         datasets = {'training': [self.image_records, len(self.image_records)}
+        try:
+            combined_datasets = {}
+            self.hdf5_file = h5py.File(self.filename, mode='r')
+            for group in self.hdf5_file:
+                combined_datasets[group] = [dict(), 0]
+                zips = zip(self.hdf5_file[group]["filenames"],
+                           self.hdf5_file[group]["inputs"].value,
+                           self.hdf5_file[group]["outputs"].value)
+                for fname, input, output in zips:
+                    combined_datasets[group][0][fname] = ImageRecord()
+                    combined_datasets[group][0][fname].cv2_image = input
+                    cls_pairs = zip(entities, output)
+                    for c in cls_pairs:
+                        combined_datasets[group][0][fname].classifications[c[0]] = c[1]
+            self.hdf5_file.close()
+            return [ combined_datasets, len(combined_datasets) ]
+        except Exception as ex:
+            print(ex)
+            return None
+
+class ImageRecord():
+
+    def __init__(self):
+        self.classifications = {}
+        self.cv2_image = None
+
+    def __repr__(self):
+        if (self.cv2_image is not None and self.classifications):
+            return "image shape:  " + str(self.cv2_image.shape) + str(self.classifications)
+        return "Uninitialized"
 
 class Window(Frame):
 
@@ -24,12 +79,9 @@ class Window(Frame):
 
     def __init__(self, entities, image_dir, db_image_height, db_image_width, master=None):
         self.current_image_index = -1
-        self.original = None
         self.image = None
         self.converted_image = None
         self.image_on_canvas = None
-        self.comnverted_image_for_h5 = None
-        self.show_cv2_image = False
         self.height = self.INITIAL_HEIGHT
         self.width = self.INITIAL_WIDTH
         self.image_dir="images"
@@ -38,90 +90,138 @@ class Window(Frame):
         self.entities = entities
         self.entityCheckBoxes = {}
         self.image_presences = {}
+        self.database = None
+        self.image_records = {}
         self.filenames=[]
-        for _,_,filenames in os.walk(os.getcwd() + os.sep + self.image_dir):
-            self.filenames = filenames
-
-        self.database = H5ImageDatabase(len(self.filenames), self.db_image_height, self.db_image_width, 
-                                        os.getcwd()+os.sep+self.DB_FILE_NAME)
+        self.current_filename=None
+        for dir,_,filenames in os.walk(os.getcwd() + os.sep + self.image_dir):
+            for filename in filenames:
+                self.filenames.append(dir + os.sep + filename)
         Frame.__init__(self, master)
-        self.button_bar = Label(self, text="Label TEXT")
+        self.top_button_bar = Label(self)
         self.bind("<Configure>", self.resize)
 
+        self.previous_butt = Button(self.top_button_bar, text="Previous Image", command=self.previous, anchor=W)
+        self.previous_butt.pack(side=LEFT)   
+        self.previous_and_save_butt = Button(self.top_button_bar, text="Save and Previous Image", command=self.previous_and_save, anchor=W)
+        self.previous_and_save_butt.pack(side=LEFT)   
+        self.next_butt = Button(self.top_button_bar, text="Next Image", command=self.next, anchor=W)
+        self.next_butt.pack(side=LEFT)   
+        self.next_and_save_butt = Button(self.top_button_bar, text="Save and Next Image", command=self.next_and_save, anchor=W)
+        self.next_and_save_butt.pack(side=LEFT)
+        self.save_datasets = Button(self.top_button_bar, text="Save Datasets", command=self.save_datasets, anchor=W)
+        self.save_datasets.pack(side=LEFT)
+
+        self.top_button_bar.pack()     
+        self.bottom_button_bar = Label(self)
         for entity in self.entities:
             self.image_presences[entity] = IntVar(value=0)
-        for entity in self.entities:
-            self.entityCheckBoxes[entity] = Checkbutton(self.button_bar, text=entity, variable=self.image_presences[entity],
-                                   offvalue=False, onvalue=True, anchor=W)
+            self.entityCheckBoxes[entity] = Checkbutton(self.bottom_button_bar, text=entity, variable=self.image_presences[entity], anchor=W)
             self.entityCheckBoxes[entity].pack(side=LEFT)   
-        self._reset_image_presences()        
-        self.next_butt = Button(self.button_bar, text="Next Image", command=self.next_image, anchor=W)
-        self.next_butt.pack(side=LEFT)   
-        self.next_and_save_butt = Button(self.button_bar, text="Save and Next Image", command=self.next_image, anchor=W)
-        self.next_and_save_butt.pack(side=LEFT)   
-        self.show_cv2_butt = Checkbutton(self.button_bar, text="Show Coverted Image", variable=self.show_cv2_image,
-                                   offvalue=False, onvalue=True, anchor=W, command=self.toggle_image)
-        self.show_cv2_butt.pack(side=LEFT)   
-
-        self.button_bar.pack()     
+        self.bottom_button_bar.pack()     
         self.display = Canvas(self, bd=0, highlightthickness=0)
         self.display.pack()
 
         self.master = master
+        from_db = H5ImageDatabase(os.getcwd()+os.sep+self.DB_FILE_NAME).load(self.entities)
+        if (from_db):
+            self.image_records = from_db[0]["training"][0]
+        in_db = []
+        for f in self.filenames:
+            if (self.image_records and f in self.image_records.keys()):
+                in_db.append(f)
+        for f in in_db:
+            self.filenames.remove(f)        
+        self.filenames = in_db + self.filenames
+        self.current_image_index = len(in_db) - 1
         self.init_window()
 
-    def _reset_image_presences(self):
-        self.image_presences = {}
-        for entity in self.entities:
-            self.image_presences[entity] = IntVar(value=0)
-            self.entityCheckBoxes[entity].deselect()
+    def previous(self):
+        self.previous_image(save=False)
 
-    def _get_appropriate_image(self):
-        if (self.show_cv2_image):
-            return self.converted_inage
-        return self.image
+    def previous_and_save(self):
+        self.previous_image(save=True)
+
+    def next(self):
+        self.next_image(save=False)
+
+    def next_and_save(self):
+        self.next_image(save=True)
+
+    #TODO aDD DBSUPPORT
+    # TODO GET SAVING TO H5PY WORKING
+    #TODO GETLOADING FROM H5PY WORKING
+    # TODO get splitting into train, dev and dev working
+
+    def save_datasets(self):
+        # todo mv db to .db if it already exists
+        datasets = {'training': [self.image_records, len(self.image_records)]}
+        self.database = H5ImageDatabase(os.getcwd()+os.sep+self.DB_FILE_NAME)
+        self.database.save(datasets)
+
+    def _reset_image_presences(self):
+        for entity in self.entities:
+            self.image_presences[entity].set(0)
 
     def init_window(self):
         self.master.title("Manual Image Classifier")
         self.pack(fill=BOTH, expand=1)
-        menu = Menu(self.master)
-        self.master.config(menu=menu)
-        file = Menu(menu)
-        file.add_command(label="Exit", command=self.client_exit)
-        menu.add_cascade(label="File", menu=file)
-        edit = Menu(menu)
-        edit.add_command(label="Next Image", command=self.next_image)
-        menu.add_cascade(label="Edit", menu=edit)
-        self.next_image()
+        self.next_image(save=False)
 
-    def next_image(self):
+    def _save_current_image_to_memory(self):
+        self.image_records[self.current_filename] = ImageRecord()
+        self.image_records[self.current_filename].cv2_image = self.cv2_image
+        for entity in self.entities:
+            self.image_records[self.current_filename].classifications[entity] = self.image_presences[entity].get()
+
+    def previous_image(self, save=True):
+        if (save):
+            self._save_current_image_to_memory()
+        self._reset_image_presences()
+        self.current_image_index -= 1
+        if (self.current_image_index == -1):
+            self.current_image_index = len(self.filenames) - 1
+        self._show_chosen_image()
+
+    def next_image(self, save=True):
+        if (save):
+            self._save_current_image_to_memory()
         self._reset_image_presences()
         self.current_image_index += 1
-        filename = os.getcwd() + os.sep + self.image_dir + os.sep + self.filenames[self.current_image_index]
-        self.original = Image.open(filename)
+        if (self.current_image_index == len(self.filenames)):
+            self.current_image_index = 0
+        self._show_chosen_image()
+    
+    def _show_chosen_image_from_memory(self, filename):
+        record = self.image_records[filename]
         self._reset_image_presences()
-        cv2_im = cv2.imread(filename)
-        cv2_im = cv2.resize(cv2_im, (self.database.width, self.database.height), interpolation=cv2.INTER_CUBIC)
-        cv2_im = cv2.cvtColor(cv2_im, cv2.COLOR_BGR2RGB)
-        self.converted_inage = ImageTk.PhotoImage(Image.fromarray(cv2_im))
+        self.cv2_image = record.cv2_image
+        self.converted_image = ImageTk.PhotoImage(Image.fromarray(self.cv2_image))
+        for entity in self.entities:
+            if (record.classifications[entity]):
+                self.entityCheckBoxes[entity].select()
+            else:
+                self.entityCheckBoxes[entity].deselect()
         self.resize(None)
-        print("Next image is " + self.filenames[self.current_image_index])
+
+    def _show_chosen_image(self):
+        self.current_filename = self.filenames[self.current_image_index]
+        if (self.current_filename in self.image_records):
+            self._show_chosen_image_from_memory(self.current_filename)
+            return
+        self._reset_image_presences()
+        self.cv2_image = cv2.imread(self.current_filename)
+        self.cv2_image = cv2.resize(self.cv2_image, (self.db_image_width, self.db_image_height), interpolation=cv2.INTER_CUBIC)
+        self.cv2_image = cv2.cvtColor(self.cv2_image, cv2.COLOR_BGR2RGB)
+        self.converted_image = ImageTk.PhotoImage(Image.fromarray(self.cv2_image))
+        self.resize(None)
 
     def resize(self, event=None):
         if (event):
             self.height = event.height
             self.width = event.width
-        size = (self.width, self.height)
-        resized = self.original.resize(size,Image.ANTIALIAS)
-        self.image = ImageTk.PhotoImage(resized)
         self.display.config(width=self.width, height=self.height)
-        self.image_on_canvas = self.display.create_image(0, 0, image=self._get_appropriate_image(), 
-                                                         anchor=NW, tags="IMG")
-        self.display.itemconfig(self.image_on_canvas, image = self._get_appropriate_image())
-
-    def toggle_image(self):
-        self.show_cv2_image = self.show_cv2_image != True
-        self.resize(None)
+        self.image_on_canvas = self.display.create_image(0, 0, image=self.converted_image, anchor=NW, tags="IMG")
 
     def client_exit(self):
         exit()
@@ -139,7 +239,6 @@ root=Tk()
 
 config = configparser.ConfigParser()
 config.read('scripts/config.ini')
-print(config.sections())
 db_image_height = config.get('database', 'imageHeight')
 db_image_width = config.get('database', 'imageWidth')
 image_dir = config.get('database', 'image_dir')
