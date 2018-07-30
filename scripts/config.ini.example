@@ -3,4 +3,8 @@ imageHeight = 540
 imageWidth  = 720
 image_dir   = "..\images"
 [general]
-enetitiesToLookFor = name1,name2,name3,name4
+entitiesToLookFor = name1,name2,name3,name4
+percentage_training = 60
+percentage_dev = 20
+percentage_test = 20
+

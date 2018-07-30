@@ -6,6 +6,8 @@ import numpy as np
 import h5py
 import cv2
 import configparser
+import random
+import math
 
 class H5ImageDatabase():
 
@@ -13,17 +15,19 @@ class H5ImageDatabase():
         self.filename = filename
 
     def save(self, datasets):
-        #         datasets = {'training': [self.image_records, len(self.image_records)}
+        if (not datasets):
+            return
         self.hdf5_file = h5py.File(self.filename, mode='w')
-        # todo what if dataset is empty
         for dataset in datasets:
+            if (not dataset):
+                continue
             grp = self.hdf5_file.create_group(dataset)
-            fname_recs = list(datasets[dataset][0].keys())[:datasets[dataset][1]]
+            fname_recs = list(datasets[dataset].keys())[:len(datasets[dataset])]
             fname_recs = [r.encode("ascii", "ignore") for r in fname_recs]
             # persist the image filenames
             grp.create_dataset("filenames", data=fname_recs, dtype=h5py.special_dtype(vlen=str))
             # persist the images themselves (ML inputs)
-            recs = list(datasets[dataset][0].values())[:datasets[dataset][1]]
+            recs = list(datasets[dataset].values())[:len(datasets[dataset])]
             img_recs = [ i.cv2_image for i in recs]
             img_rec_shape = (len(img_recs), img_recs[0].shape[0], img_recs[0].shape[1], img_recs[0].shape[2])
             img_dataset = grp.create_dataset("inputs", img_rec_shape, np.uint8)
@@ -39,23 +43,22 @@ class H5ImageDatabase():
         self.hdf5_file.close()
 
     def load(self, entities):
-        #         datasets = {'training': [self.image_records, len(self.image_records)}
         try:
             combined_datasets = {}
             self.hdf5_file = h5py.File(self.filename, mode='r')
             for group in self.hdf5_file:
-                combined_datasets[group] = [dict(), 0]
+                combined_datasets[group] = dict()
                 zips = zip(self.hdf5_file[group]["filenames"],
                            self.hdf5_file[group]["inputs"].value,
                            self.hdf5_file[group]["outputs"].value)
                 for fname, input, output in zips:
-                    combined_datasets[group][0][fname] = ImageRecord()
-                    combined_datasets[group][0][fname].cv2_image = input
+                    combined_datasets[group][fname] = ImageRecord()
+                    combined_datasets[group][fname].cv2_image = input
                     cls_pairs = zip(entities, output)
                     for c in cls_pairs:
-                        combined_datasets[group][0][fname].classifications[c[0]] = c[1]
+                        combined_datasets[group][fname].classifications[c[0]] = c[1]
             self.hdf5_file.close()
-            return [ combined_datasets, len(combined_datasets) ]
+            return combined_datasets
         except Exception as ex:
             print(ex)
             return None
@@ -77,7 +80,7 @@ class Window(Frame):
     INITIAL_WIDTH = 1024
     DB_FILE_NAME = "h5.db"
 
-    def __init__(self, entities, image_dir, db_image_height, db_image_width, master=None):
+    def __init__(self, entities, image_dir, db_image_height, db_image_width, percentage_training, percentage_dev, percentage_test, master=None):
         self.current_image_index = -1
         self.image = None
         self.converted_image = None
@@ -87,6 +90,9 @@ class Window(Frame):
         self.image_dir="images"
         self.db_image_height = 12*45
         self.db_image_width = 16*45
+        self.percentage_training = percentage_training
+        self.percentage_dev = percentage_dev
+        self.percentage_test = percentage_test
         self.entities = entities
         self.entityCheckBoxes = {}
         self.image_presences = {}
@@ -94,6 +100,8 @@ class Window(Frame):
         self.status_text=StringVar()
         self.image_records = {}
         self.filenames=[]
+        self.sets = None
+        self.entity_map = None
         self.current_filename=None
         for dir,_,filenames in os.walk(os.getcwd() + os.sep + self.image_dir):
             for filename in filenames:
@@ -128,7 +136,9 @@ class Window(Frame):
         self.master = master
         from_db = H5ImageDatabase(os.getcwd()+os.sep+self.DB_FILE_NAME).load(self.entities)
         if (from_db):
-            self.image_records = from_db[0]["training"][0]
+            self.image_records = dict()
+            for group in from_db:
+                self.image_records.update(from_db[group])
         in_db = []
         for f in self.filenames:
             if (self.image_records and f in self.image_records.keys()):
@@ -151,11 +161,52 @@ class Window(Frame):
     def next_and_save(self):
         self.next_image(save=True)
 
-    # TODO get splitting into train, dev and dev working
-
     def save_datasets(self):
         # todo mv db to .db if it already exists
-        datasets = {'training': [self.image_records, len(self.image_records)]}
+
+        # make a dictionary that maps entities to the list of indices into 
+        # the image records where images were classified as that entity
+        self.entity_map = dict()
+        self.entity_map["Unclassified"] = list()
+        for entity in self.entities:
+            self.entity_map[entity] = list()
+        for ir in self.image_records:
+            classification_count = 0
+            for entity in self.entities:
+                if (self.image_records[ir].classifications[entity] > 0):
+                    self.entity_map[entity].append(self.image_records[ir])
+                    # first one wins - if a record has multiple classifications
+                    # we treat it as belonging to the first class we see
+                    break
+                classification_count+=1
+            if (classification_count == len(self.entities)):
+                self.entity_map["Unclassified"].append(ir)
+
+        # shuffle each list of indices in the dictionary
+        for entity in self.entity_map:
+            if (self.entity_map[entity]):
+                random.shuffle(self.entity_map[entity])
+
+        # make a dictionary that maps the test set names to a slice of each
+        # per-entity index list that's as long as the precentages require
+        self.sets = dict()
+        self.sets['dev'] = [ self.percentage_dev, [] ]
+        self.sets['test'] = [ self.percentage_test, [] ]
+        self.sets['training'] = [ self.percentage_training, [] ]
+        for entity in self.entity_map:
+            recs_taken = 0
+            for s in self.sets:
+                to_take = math.ceil((self.sets[s][0]/100.0) * len(self.entity_map[entity]))
+                self.sets[s][1] += self.entity_map[entity][recs_taken:min(recs_taken+to_take, len(self.entity_map[entity]))]
+                recs_taken += to_take
+
+        # concatenate all the per-training set lists and shuffle them
+        for s in self.sets:
+            if (self.sets[s]):
+                random.shuffle(self.sets[s][1])
+        self.resize()
+
+        datasets = {'training': self.image_records}
         self.database = H5ImageDatabase(os.getcwd()+os.sep+self.DB_FILE_NAME)
         self.database.save(datasets)
 
@@ -222,12 +273,13 @@ class Window(Frame):
             stats[entity] = 0
         for k in self.image_records.keys():
             classes = self.image_records[k].classifications
-            total_classifications = 0
+            total_classifications_curr_record = 0
             for c in classes.keys():
                 stats[c] += classes[c]
-                total_classifications += classes[c]
-            if (total_classifications == 0):
+                total_classifications_curr_record += classes[c]
+            if (total_classifications_curr_record == 0):
                 stats["Unclassified"] +=1
+        stats["Total"] =len(self.image_records)
         return stats
 
     def resize(self, event=None):
@@ -241,6 +293,20 @@ class Window(Frame):
         stats = self._get_summary_stats()
         for s in stats.keys():
             status_text += s + ": " + str(stats[s]) + '\n'
+
+        if (self.entity_map and self.sets):
+            status_text += "\nTraining/dev/test sets composition:\n"
+            for entity in self.entity_map:
+                recs_taken = 0
+                for s in self.sets:
+                    to_take = math.ceil((self.sets[s][0]/100.0) * len(self.entity_map[entity]))
+                    if (recs_taken + to_take > len(self.entity_map[entity])):
+                        to_take = len(self.entity_map[entity]) - recs_taken
+                    status_text += entity + ", " + s + ": percentage " + str(self.sets[s][0]) + " total records " + str(to_take) + '\n'
+                    recs_taken += to_take
+            for s in self.sets:
+                status_text += "Total in " + s + ":  " + str(len(self.sets[s][1])) + '\n'
+
         self.status_text.set(status_text)
 
     def client_exit(self):
@@ -262,8 +328,14 @@ config.read('scripts/config.ini')
 db_image_height = config.get('database', 'imageHeight')
 db_image_width = config.get('database', 'imageWidth')
 image_dir = config.get('database', 'image_dir')
-entities = config.get('general', 'enetitiesToLookFor').split(',')
-app = Window(entities, image_dir, db_image_height, db_image_width, root)
+entities = config.get('general', 'entitiesToLookFor').split(',')
+percentage_training = int(config.get('general', "percentage_training"))
+percentage_dev = int(config.get('general', "percentage_dev"))
+percentage_test = int(config.get('general', "percentage_test"))
+if (percentage_training + percentage_dev + percentage_test != 100):
+    print("training, dev and test set percentages do notsum to 100 - check config.ini")
+    exit(1)
+app = Window(entities, image_dir, db_image_height, db_image_width, percentage_training, percentage_dev, percentage_test, root)
 root.mainloop()
 
 
