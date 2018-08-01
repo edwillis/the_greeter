@@ -22,12 +22,14 @@ class H5ImageDatabase():
             if (not dataset):
                 continue
             grp = self.hdf5_file.create_group(dataset)
-            fname_recs = list(datasets[dataset].keys())[:len(datasets[dataset])]
+            image_recs = datasets[dataset][1]
+            fname_recs = []
+            fname_recs = [ ir[0] for ir in image_recs ]
             fname_recs = [r.encode("ascii", "ignore") for r in fname_recs]
             # persist the image filenames
             grp.create_dataset("filenames", data=fname_recs, dtype=h5py.special_dtype(vlen=str))
             # persist the images themselves (ML inputs)
-            recs = list(datasets[dataset].values())[:len(datasets[dataset])]
+            recs = [ ir[1] for ir in image_recs ]
             img_recs = [ i.cv2_image for i in recs]
             img_rec_shape = (len(img_recs), img_recs[0].shape[0], img_recs[0].shape[1], img_recs[0].shape[2])
             img_dataset = grp.create_dataset("inputs", img_rec_shape, np.uint8)
@@ -170,11 +172,11 @@ class Window(Frame):
         self.entity_map["Unclassified"] = list()
         for entity in self.entities:
             self.entity_map[entity] = list()
-        for ir in self.image_records:
+        for ir in self.image_records.keys():
             classification_count = 0
             for entity in self.entities:
                 if (self.image_records[ir].classifications[entity] > 0):
-                    self.entity_map[entity].append(self.image_records[ir])
+                    self.entity_map[entity].append(ir)
                     # first one wins - if a record has multiple classifications
                     # we treat it as belonging to the first class we see
                     break
@@ -193,11 +195,18 @@ class Window(Frame):
         self.sets['dev'] = [ self.percentage_dev, [] ]
         self.sets['test'] = [ self.percentage_test, [] ]
         self.sets['training'] = [ self.percentage_training, [] ]
+
         for entity in self.entity_map:
             recs_taken = 0
             for s in self.sets:
-                to_take = math.ceil((self.sets[s][0]/100.0) * len(self.entity_map[entity]))
-                self.sets[s][1] += self.entity_map[entity][recs_taken:min(recs_taken+to_take, len(self.entity_map[entity]))]
+                to_take = min(math.ceil((self.sets[s][0]/100.0) * len(self.entity_map[entity])), len(self.entity_map[entity]))
+                # the ceiling calls round up for dev and test sets, so we would
+                # overcount on the training set unless we take the min of the sum
+                # and the actual end of the list
+                upper_end = min(recs_taken+to_take, len(self.entity_map[entity]))
+                # self.sets[s][1] += self.entity_map[entity][recs_taken:upper_end]
+                for ir in self.entity_map[entity][recs_taken:upper_end]:
+                    self.sets[s][1].append([ir, self.image_records[ir]])
                 recs_taken += to_take
 
         # concatenate all the per-training set lists and shuffle them
@@ -206,9 +215,8 @@ class Window(Frame):
                 random.shuffle(self.sets[s][1])
         self.resize()
 
-        datasets = {'training': self.image_records}
         self.database = H5ImageDatabase(os.getcwd()+os.sep+self.DB_FILE_NAME)
-        self.database.save(datasets)
+        self.database.save(self.sets)
 
     def _reset_image_presences(self):
         for entity in self.entities:
@@ -299,7 +307,7 @@ class Window(Frame):
             for entity in self.entity_map:
                 recs_taken = 0
                 for s in self.sets:
-                    to_take = math.ceil((self.sets[s][0]/100.0) * len(self.entity_map[entity]))
+                    to_take = min(math.ceil((self.sets[s][0]/100.0) * len(self.entity_map[entity])), len(self.entity_map[entity]))
                     if (recs_taken + to_take > len(self.entity_map[entity])):
                         to_take = len(self.entity_map[entity]) - recs_taken
                     status_text += entity + ", " + s + ": percentage " + str(self.sets[s][0]) + " total records " + str(to_take) + '\n'
@@ -324,7 +332,7 @@ class Window(Frame):
 root=Tk()
 
 config = configparser.ConfigParser()
-config.read('scripts/config.ini')
+config.read('config.ini')
 db_image_height = config.get('database', 'imageHeight')
 db_image_width = config.get('database', 'imageWidth')
 image_dir = config.get('database', 'image_dir')
