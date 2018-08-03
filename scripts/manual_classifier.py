@@ -105,6 +105,7 @@ class Window(Frame):
         self.sets = None
         self.entity_map = None
         self.current_filename=None
+        self.wrapped = False
         for dir,_,filenames in os.walk(os.getcwd() + os.sep + self.image_dir):
             for filename in filenames:
                 self.filenames.append(dir + os.sep + filename)
@@ -240,6 +241,7 @@ class Window(Frame):
         self.current_image_index -= 1
         if (self.current_image_index == -1):
             self.current_image_index = len(self.filenames) - 1
+            self.wrapped = True
         self._show_chosen_image()
 
     def next_image(self, save=True):
@@ -249,6 +251,7 @@ class Window(Frame):
         self.current_image_index += 1
         if (self.current_image_index == len(self.filenames)):
             self.current_image_index = 0
+            self.wrapped = True
         self._show_chosen_image()
     
     def _show_chosen_image_from_memory(self, filename):
@@ -314,6 +317,9 @@ class Window(Frame):
                     recs_taken += to_take
             for s in self.sets:
                 status_text += "Total in " + s + ":  " + str(len(self.sets[s][1])) + '\n'
+        if (self.wrapped):
+            status_text += "\nWRAPPED"
+            self.wrapped = False
 
         self.status_text.set(status_text)
 
