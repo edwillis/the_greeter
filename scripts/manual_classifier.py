@@ -44,7 +44,7 @@ class H5ImageDatabase():
                 cls_dataset[i] = classes
         self.hdf5_file.close()
 
-    def load(self, entities):
+    def load(self, entities, expected_height, expected_width):
         try:
             combined_datasets = {}
             self.hdf5_file = h5py.File(self.filename, mode='r')
@@ -53,12 +53,20 @@ class H5ImageDatabase():
                 zips = zip(self.hdf5_file[group]["filenames"],
                            self.hdf5_file[group]["inputs"].value,
                            self.hdf5_file[group]["outputs"].value)
+                print("Expected h " + str(expected_height) + " expected w " + str(expected_width))
                 for fname, input, output in zips:
                     combined_datasets[group][fname] = ImageRecord()
                     combined_datasets[group][fname].cv2_image = input
+                    print("BEFORE ")
+                    print(combined_datasets[group][fname].cv2_image.shape)
+                    if (combined_datasets[group][fname].cv2_image.shape[0] != expected_height or
+                        combined_datasets[group][fname].cv2_image.shape[1] != expected_width):
+                        cv2.resize(combined_datasets[group][fname].cv2_image, (expected_width, expected_height), interpolation=cv2.INTER_CUBIC)
                     cls_pairs = zip(entities, output)
                     for c in cls_pairs:
                         combined_datasets[group][fname].classifications[c[0]] = c[1]
+                    print("AFTER ")
+                    print(combined_datasets[group][fname].cv2_image.shape)
             self.hdf5_file.close()
             return combined_datasets
         except Exception as ex:
@@ -90,8 +98,8 @@ class Window(Frame):
         self.height = self.INITIAL_HEIGHT
         self.width = self.INITIAL_WIDTH
         self.image_dir="images"
-        self.db_image_height = 12*45
-        self.db_image_width = 16*45
+        self.db_image_height = db_image_height
+        self.db_image_width = db_image_width
         self.percentage_training = percentage_training
         self.percentage_dev = percentage_dev
         self.percentage_test = percentage_test
@@ -137,7 +145,7 @@ class Window(Frame):
         self.display.pack()
 
         self.master = master
-        from_db = H5ImageDatabase(os.getcwd()+os.sep+self.DB_FILE_NAME).load(self.entities)
+        from_db = H5ImageDatabase(os.getcwd()+os.sep+self.DB_FILE_NAME).load(self.entities, self.db_image_height, self.db_image_width)
         if (from_db):
             self.image_records = dict()
             for group in from_db:
@@ -339,13 +347,15 @@ root=Tk()
 
 config = configparser.ConfigParser()
 config.read('config.ini')
-db_image_height = config.get('database', 'imageHeight')
-db_image_width = config.get('database', 'imageWidth')
+db_image_height = config.getint('database', 'imageHeight')
+db_image_width = config.getint('database', 'imageWidth')
+print(db_image_height)
+print(db_image_width)
 image_dir = config.get('database', 'image_dir')
 entities = config.get('general', 'entitiesToLookFor').split(',')
-percentage_training = int(config.get('general', "percentage_training"))
-percentage_dev = int(config.get('general', "percentage_dev"))
-percentage_test = int(config.get('general', "percentage_test"))
+percentage_training = config.getint('general', "percentage_training")
+percentage_dev = config.getint('general', "percentage_dev")
+percentage_test = config.getint('general', "percentage_test")
 if (percentage_training + percentage_dev + percentage_test != 100):
     print("training, dev and test set percentages do notsum to 100 - check config.ini")
     exit(1)
