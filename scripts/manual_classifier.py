@@ -14,7 +14,7 @@ class H5ImageDatabase():
     def __init__(self, filename):
         self.filename = filename
 
-    def save(self, datasets):
+    def save(self, datasets, image_height, image_width):
         if (not datasets):
             return
         self.hdf5_file = h5py.File(self.filename, mode='w')
@@ -32,9 +32,9 @@ class H5ImageDatabase():
             recs = [ ir[1] for ir in image_recs ]
             img_recs = [ i.cv2_image for i in recs]
             img_rec_shape = (len(img_recs), img_recs[0].shape[0], img_recs[0].shape[1], img_recs[0].shape[2])
-            img_dataset = grp.create_dataset("inputs", img_rec_shape, np.uint8)
+            img_dataset = grp.create_dataset("inputs", img_rec_shape, np.float16, chunks=(10, img_recs[0].shape[0], img_recs[0].shape[1], 3))
             for i in range(len(img_recs)):
-                img_dataset[i, ...] = img_recs[i][None]
+                img_dataset[i, ...] = img_recs[i][None]/255.0
             # persist the classifications (ML outputs)
             class_recs = [ i.classifications for i in recs]
             class_rec_shape = (len(class_recs), len(class_recs[0]))
@@ -50,23 +50,19 @@ class H5ImageDatabase():
             self.hdf5_file = h5py.File(self.filename, mode='r')
             for group in self.hdf5_file:
                 combined_datasets[group] = dict()
+                conversion = np.rint(self.hdf5_file[group]["inputs"].value * 255).astype(np.uint8)
                 zips = zip(self.hdf5_file[group]["filenames"],
-                           self.hdf5_file[group]["inputs"].value,
+                           conversion,
                            self.hdf5_file[group]["outputs"].value)
-                print("Expected h " + str(expected_height) + " expected w " + str(expected_width))
                 for fname, input, output in zips:
                     combined_datasets[group][fname] = ImageRecord()
                     combined_datasets[group][fname].cv2_image = input
-                    print("BEFORE ")
-                    print(combined_datasets[group][fname].cv2_image.shape)
                     if (combined_datasets[group][fname].cv2_image.shape[0] != expected_height or
                         combined_datasets[group][fname].cv2_image.shape[1] != expected_width):
-                        cv2.resize(combined_datasets[group][fname].cv2_image, (expected_width, expected_height), interpolation=cv2.INTER_CUBIC)
+                        combined_datasets[group][fname].cv2_image = cv2.resize(combined_datasets[group][fname].cv2_image, (expected_width, expected_height), interpolation=cv2.INTER_CUBIC)
                     cls_pairs = zip(entities, output)
                     for c in cls_pairs:
                         combined_datasets[group][fname].classifications[c[0]] = c[1]
-                    print("AFTER ")
-                    print(combined_datasets[group][fname].cv2_image.shape)
             self.hdf5_file.close()
             return combined_datasets
         except Exception as ex:
@@ -225,7 +221,7 @@ class Window(Frame):
         self.resize()
 
         self.database = H5ImageDatabase(os.getcwd()+os.sep+self.DB_FILE_NAME)
-        self.database.save(self.sets)
+        self.database.save(self.sets, self.db_image_height, self.db_image_width)
 
     def _reset_image_presences(self):
         for entity in self.entities:
@@ -349,8 +345,6 @@ config = configparser.ConfigParser()
 config.read('config.ini')
 db_image_height = config.getint('database', 'imageHeight')
 db_image_width = config.getint('database', 'imageWidth')
-print(db_image_height)
-print(db_image_width)
 image_dir = config.get('database', 'image_dir')
 entities = config.get('general', 'entitiesToLookFor').split(',')
 percentage_training = config.getint('general', "percentage_training")
