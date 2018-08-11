@@ -56,33 +56,33 @@ as well as your config.ini file and the vgg_simple.py file.
 "AmazonS3FullAccess" policy.
 * Go into theEC2 service in the console.
 * Launch an instance.  The key things to ensure here are:
-** Choose the instance type - I was pleased with the price and performance of the
+  * Choose the instance type - I was pleased with the price and performance of the
 "p2.xlarge" instances, but you are free to choose whatever you like.  I would not try
 the low memory instances (< 16G or so) or anything without a GPU.
-** Choose the latest version of the "Deep Learning AMI (Ubuntu)" AMI as the OS for
+  * Choose the latest version of the "Deep Learning AMI (Ubuntu)" AMI as the OS for
 the instance,
-** In "Configure Instance Details" make sure to set the "Shutdown behavior" to
+  * In "Configure Instance Details" make sure to set the "Shutdown behavior" to
 "terminate" and the "IAM Role" to the role you created earlier.
-** Use the default storage options
-** You will be prompted to create an SSH key for accessing your instance.  Make sure
+  * Use the default storage options
+  * You will be prompted to create an SSH key for accessing your instance.  Make sure
 to save the resulting PEM file somewhere safe.
-** Make sure to select that SSH key when launching the instance by clicking on
+  * Make sure to select that SSH key when launching the instance by clicking on
 "Review and Launch".
-** Once the instance is up and running (you'll see it in the EC2 service page in the
+  * Once the instance is up and running (you'll see it in the EC2 service page in the
 console), copy its IP address and ssh to it like so:  ssh -i <PATH TO PEM FILE>
 ubuntu@<IP ADDRESS OF EC2 INSTANCE>.
-** Once you're on the instance, you can copy all the stuff from your S3 bucket like
+  * Once you're on the instance, you can copy all the stuff from your S3 bucket like
 so:  
-*** aws s3 cp s3://<BUCKET NAME>/vgg_simple.py vgg_simple.py
-*** aws s3 cp s3://<BUCKET_NAME>/config.ini config.ini
-*** aws s3 cp s3://<BUCKET_NAME>/h5.db h5.db
-** And then run your training script like so:
-*** source activate tensorflow_p36
-*** python3  vgg_simple.py
-** Note that, for my images and classes (classifying four unique people using images
+  * aws s3 cp s3://<BUCKET NAME>/vgg_simple.py vgg_simple.py
+  * aws s3 cp s3://<BUCKET_NAME>/config.ini config.ini
+  * aws s3 cp s3://<BUCKET_NAME>/h5.db h5.db
+  * And then run your training script like so:
+  * source activate tensorflow_p36
+  * python3  vgg_simple.py
+  *Note that, for my images and classes (classifying four unique people using images
 captured in my foyer) I was able to train up a CNN model in a couple of hours that
 had false positives about 1 in 6 times it made a classification.
-** Note also that the vgg_simple.py script will leave a file containing the entire
+  *Note also that the vgg_simple.py script will leave a file containing the entire
 trained model called "vggsimple_v1.model" in the current working directory - if you
 want to keep it, a reasonable place to do so is in your S3 bucket - the local
 storage on the EC2 instance is not persisted once the instance terminates so you
