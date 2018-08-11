@@ -22,8 +22,8 @@ directory to get you started - but note that the samba configuration shares an
 unprotected directory containing the captured images, so revise accordingly if
 you're not comfortable with that.  I also added these lines:
 
-```sudo service motion start
-sudo motion```
+    sudo service motion start
+    sudo motion
 
 to /etc/rc.local.  Once you've done all this, reboot the Pi and you should start
 seeing images populated to /var/lib/motion.  The configuration of motion results in
