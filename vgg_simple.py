@@ -1,3 +1,20 @@
+'''
+
+vgg_simple.py is a CNN loosely based on VGG net.  It uses a couple of
+convolutional blocks (3x3 filters with same padding, relu
+activation, batch normalization, max pooling using 3x3 and 10% drop
+out to avoud ovetfitting) followed by a single fully connected
+layer with 10% dropout and batch normalization and relu activation,
+followed by an output layer as big as the number of entities being
+classified, this time with a sigmoid activation function.
+
+It reads the h5.db file to grab the training, dev and test sets but
+uses data augmentation to distort the images in the h5.db to
+hopefully help with the relative scarcity of data.
+
+For optimization, I use just Adam.
+'''
+
 import numpy as np
 import numpy.random
 from keras.models import Sequential, load_model
@@ -12,12 +29,9 @@ import configparser
 import h5py
 from pprint import pprint
 import time
-import matplotlib
-import matplotlib.pyplot as plt
 import os.path
 import os
     
-matplotlib.use("Agg")
 INIT_LR = 0.001
 EPOCHS = 100
 BS=128
@@ -47,9 +61,9 @@ with h5py.File(DB_FILE_NAME, mode='r') as f:
         total_records += total_records_in_group
 print(str(total_records) + " records were read across all datasets")
 
-#config = configparser.ConfigParser()
-#config.read('config.ini')
-entities = 'Irma,Jakac,Mim,Ga'.split(',')
+config = configparser.ConfigParser()
+config.read('config.ini')
+entities = config.get('general', 'entitiesToLookFor').split(',')
 
 assert('training' in datasets)
 assert('dev' in datasets)
@@ -112,11 +126,8 @@ else:
     model.add(Activation("relu"))
     model.add(BatchNormalization())
     model.add(Dropout(0.1))
-    #model.add(Dense(1024))
-    #model.add(Activation("relu"))
-    #model.add(BatchNormalization())
-    #model.add(Dropout(0.1))
 
+    # Output layer
     model.add(Dense(len(entities)))
     model.add(Activation('sigmoid'))
     opt = Adam(lr=INIT_LR, decay=INIT_LR / EPOCHS)
@@ -129,8 +140,6 @@ else:
 aug = ImageDataGenerator(rotation_range=25, width_shift_range=0.1,
 	height_shift_range=0.1, shear_range=0.2, zoom_range=0.2,
 	horizontal_flip=True, fill_mode="nearest")
-
-opt = Adam(lr=INIT_LR, decay=INIT_LR / EPOCHS)
 
 earlystop = EarlyStopping(monitor='loss', min_delta=0.0000000001, patience=5, verbose=1, mode='auto')
 
@@ -192,19 +201,3 @@ print("\nModel construction, training and evaluation time is:")
 print(time.time() -1)
 # Save the model itself
 model.save(MODEL_OUTPUT_FILENAME)
-
-
-
-# plot the training loss and accuracy
-#plt.style.use("ggplot")
-#plt.figure()
-#N = EPOCHS
-#plt.plot(np.arange(0, N), H.history["loss"], label="train_loss")
-#plt.plot(np.arange(0, N), H.history["val_loss"], label="val_loss")
-#plt.plot(np.arange(0, N), H.history["acc"], label="train_acc")
-#plt.plot(np.arange(0, N), H.history["val_acc"], label="val_acc")
-#plt.title("Training Loss and Accuracy")
-#plt.xlabel("Epoch #")
-#plt.ylabel("Loss/Accuracy")
-#plt.legend(loc="upper left")
-#plt.savefig(PLOT_FILENAME)

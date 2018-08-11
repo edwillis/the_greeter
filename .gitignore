@@ -1,4 +1,6 @@
 config.ini
 images
 h5.db
+h5.db.bak
 .vscode
+vggsimple_v1.*

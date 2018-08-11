@@ -34,7 +34,8 @@ class H5ImageDatabase():
             img_rec_shape = (len(img_recs), img_recs[0].shape[0], img_recs[0].shape[1], img_recs[0].shape[2])
             img_dataset = grp.create_dataset("inputs", img_rec_shape, np.float16, chunks=(10, img_recs[0].shape[0], img_recs[0].shape[1], 3))
             for i in range(len(img_recs)):
-                img_dataset[i, ...] = img_recs[i][None]/255.0
+                if (img_recs[i] is not None):
+                    img_dataset[i, ...] = img_recs[i][None]/255.0
             # persist the classifications (ML outputs)
             class_recs = [ i.classifications for i in recs]
             class_rec_shape = (len(class_recs), len(class_recs[0]))
