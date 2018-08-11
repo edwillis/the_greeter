@@ -1,15 +1,15 @@
-manual_classifier.py
+# manual_classifier.py
 
-Description:
+## Description:
 This script is used to create data for training, dev, and test sets.  The user
-is guided through all the images in the images directory and annotates each image
-with the entities that are present in it.  The images are reformatted to ensure a
-common size and the images as well as their classifications, are written to an
-h5py database for later use in training.
+is guided through all the images in the images directory (specified in config.ini)
+and annotates each image with the entities that are present in it.  The images are
+reformatted to ensure a common size and the images as well as their
+classifications, are written to an h5py database for later use in training.
 
-Usage:
+## Usage:
 Copy or rename scripts\config.ini.example to scripts\config.ini and edit it to meet
-your needs.  The "image_dir" setting is reletive to the scirpts directory.  The
+your needs.  The "image_dir" setting is reletive to the scripts directory.  The
 database image height and width settings should match the aspect ratio of the bulk
 of the images to classify and otherewise be big enough to yield images that don't
 lose too much detail (you can view the converted images in the UI of the script
