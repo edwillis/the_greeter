@@ -13,14 +13,14 @@ rtecognize those people
 training images in so that people can be recognized as they walk through that area
 
 ## Capturing training set images
-I used [raspbian] (https://www.raspberrypi.org/downloads/raspbian/) deployed on a
-Raspberry Pi.  For image capture, I used a cheap web camera, the [Logitech C270]
-(https://www.logitech.com/en-ca/product/hd-webcam-c270).  To configure the Pi, all
-that's needed is to install and configure "motion" and "samba" (I've included my 
-/etc/motion/motion.conf file and my /etc/samba/smb.conf files in the raspbian_config
-directory to get you started - but note that the samba configuration shares an
-unprotected directory containing the captured images, so revise accordingly if
-you're not comfortable with that.  I also added these lines:
+I used [raspbian](https://www.raspberrypi.org/downloads/raspbian/) deployed on a
+Raspberry Pi.  For image capture, I used a cheap web camera, the 
+[Logitech C270](https://www.logitech.com/en-ca/product/hd-webcam-c270).  
+To configure the Pi, all that's needed is to install and configure "motion" and
+"samba" (I've included my /etc/motion/motion.conf file and my /etc/samba/smb.conf
+files in the raspbian_config directory to get you started - but note that the samba
+configuration shares an unprotected directory containing the captured images, so
+revise accordingly if you're not comfortable with that.  I also added these lines:
 
     sudo service motion start
     sudo motion
@@ -41,7 +41,7 @@ inherent reason you would have to do this on AWS however - you could do it local
 following a similar procedure. 
 To deploy training instances on AWS, I did the following:
 
-* Visit [AWS] (https://aws.amazon.com/) and create an AWS account.  You'll need to
+* Visit [AWS](https://aws.amazon.com/) and create an AWS account.  You'll need to
 provide a payment method unless you want to try to train on the free tier EC2
 instances (which I would not recommend). 
 * Sign into the AWS console using your new credentials.
