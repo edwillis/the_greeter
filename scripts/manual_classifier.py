@@ -20,22 +20,31 @@ class H5ImageDatabase():
         self.hdf5_file = h5py.File(self.filename, mode='w')
         for dataset in datasets:
             if (not dataset):
+                print("Dataset " + dataset + " is absent")
                 continue
             grp = self.hdf5_file.create_group(dataset)
             image_recs = datasets[dataset][1]
-            fname_recs = []
+            if (not image_recs):
+                print("No image records for dataset " + dataset)
+                continue
             fname_recs = [ ir[0] for ir in image_recs ]
             fname_recs = [r.encode("ascii", "ignore") for r in fname_recs]
+            if (not fname_recs):
+                print("No filename records for dataset " + dataset)
+                continue
             # persist the image filenames
             grp.create_dataset("filenames", data=fname_recs, dtype=h5py.special_dtype(vlen=str))
             # persist the images themselves (ML inputs)
             recs = [ ir[1] for ir in image_recs ]
             img_recs = [ i.cv2_image for i in recs]
+
             img_rec_shape = (len(img_recs), img_recs[0].shape[0], img_recs[0].shape[1], img_recs[0].shape[2])
-            img_dataset = grp.create_dataset("inputs", img_rec_shape, np.float16, chunks=(10, img_recs[0].shape[0], img_recs[0].shape[1], 3))
+            img_dataset = grp.create_dataset("inputs", img_rec_shape, np.float16)
             for i in range(len(img_recs)):
                 if (img_recs[i] is not None):
-                    img_dataset[i, ...] = img_recs[i][None]/255.0
+                    img_dataset[i, ...] = img_recs[i][None]
+                else:
+                    print ("NO IMAGE!")
             # persist the classifications (ML outputs)
             class_recs = [ i.classifications for i in recs]
             class_rec_shape = (len(class_recs), len(class_recs[0]))
@@ -51,7 +60,7 @@ class H5ImageDatabase():
             self.hdf5_file = h5py.File(self.filename, mode='r')
             for group in self.hdf5_file:
                 combined_datasets[group] = dict()
-                conversion = np.rint(self.hdf5_file[group]["inputs"].value * 255).astype(np.uint8)
+                conversion = np.rint(self.hdf5_file[group]["inputs"].value).astype(np.uint8)
                 zips = zip(self.hdf5_file[group]["filenames"],
                            conversion,
                            self.hdf5_file[group]["outputs"].value)
@@ -60,6 +69,7 @@ class H5ImageDatabase():
                     combined_datasets[group][fname].cv2_image = input
                     if (combined_datasets[group][fname].cv2_image.shape[0] != expected_height or
                         combined_datasets[group][fname].cv2_image.shape[1] != expected_width):
+                        print("RESIZING")
                         combined_datasets[group][fname].cv2_image = cv2.resize(combined_datasets[group][fname].cv2_image, (expected_width, expected_height), interpolation=cv2.INTER_CUBIC)
                     cls_pairs = zip(entities, output)
                     for c in cls_pairs:
@@ -86,6 +96,7 @@ class Window(Frame):
     INITIAL_HEIGHT = 768
     INITIAL_WIDTH = 1024
     DB_FILE_NAME = "h5.db"
+    IMAGE_DISPLAY_ZOOM = 3
 
     def __init__(self, entities, image_dir, db_image_height, db_image_width, percentage_training, percentage_dev, percentage_test, master=None):
         self.current_image_index = -1
@@ -94,7 +105,7 @@ class Window(Frame):
         self.image_on_canvas = None
         self.height = self.INITIAL_HEIGHT
         self.width = self.INITIAL_WIDTH
-        self.image_dir="images"
+        self.image_dir=image_dir
         self.db_image_height = db_image_height
         self.db_image_width = db_image_width
         self.percentage_training = percentage_training
@@ -102,7 +113,10 @@ class Window(Frame):
         self.percentage_test = percentage_test
         self.entities = entities
         self.entityCheckBoxes = {}
+        self.viewEntityCheckBoxes = {}
         self.image_presences = {}
+        self.view_state_is_review = False
+        self.image_view_selector = {}
         self.database = None
         self.status_text=StringVar()
         self.image_records = {}
@@ -124,20 +138,31 @@ class Window(Frame):
         self.previous_and_save_butt.pack(side=LEFT)   
         self.next_butt = Button(self.top_button_bar, text="Next Image", command=self.next, anchor=W)
         self.next_butt.pack(side=LEFT)   
-        self.next_and_save_butt = Button(self.top_button_bar, text="Save and Next Image", command=self.next_and_save, anchor=W)
+        self.next_and_save_butt = Button(self.top_button_bar,  text="Save and Next Image", command=self.next_and_save, anchor=W)
         self.next_and_save_butt.pack(side=LEFT)
         self.save_datasets = Button(self.top_button_bar, text="Save Datasets", command=self.save_datasets, anchor=W)
         self.save_datasets.pack(side=LEFT)
         self.status_label = Label(anchor=W, justify=LEFT, textvariable=self.status_text)
         self.status_label.pack(side=RIGHT)
-
         self.top_button_bar.pack()     
-        self.bottom_button_bar = Label(self)
+
+        self.mid_button_bar = Label(self)
+        self.classification_label = Label(self.mid_button_bar, anchor=W, text="View Only:")
+        self.classification_label.pack(side=LEFT)
+        self.keyBoardShortCuts = {}
+        for entity in self.entities:
+            self.image_view_selector[entity] = IntVar(value=0)
+            self.viewEntityCheckBoxes[entity] = Checkbutton(self.mid_button_bar, text=entity, variable=self.image_view_selector[entity], anchor=W)
+            self.viewEntityCheckBoxes[entity].pack(side=LEFT)
+
+        self.classification_label = Label(self.mid_button_bar, anchor=W, text="Classification:")
+        self.classification_label.pack(side=LEFT)
         for entity in self.entities:
             self.image_presences[entity] = IntVar(value=0)
-            self.entityCheckBoxes[entity] = Checkbutton(self.bottom_button_bar, text=entity, variable=self.image_presences[entity], anchor=W)
+            self.entityCheckBoxes[entity] = Checkbutton(self.mid_button_bar, text=entity, variable=self.image_presences[entity], anchor=W)
             self.entityCheckBoxes[entity].pack(side=LEFT)   
-        self.bottom_button_bar.pack()     
+        self.mid_button_bar.pack()     
+
         self.display = Canvas(self, bd=0, highlightthickness=0)
         self.display.pack()
 
@@ -146,7 +171,9 @@ class Window(Frame):
         if (from_db):
             self.image_records = dict()
             for group in from_db:
-                self.image_records.update(from_db[group])
+                for k,v in from_db[group].items():
+                    assert(type(v) == ImageRecord)
+                    self.image_records[k] = v
         in_db = []
         for f in self.filenames:
             if (self.image_records and f in self.image_records.keys()):
@@ -156,6 +183,55 @@ class Window(Frame):
         self.filenames = in_db + self.filenames
         self.current_image_index = len(in_db) - 1
         self.init_window()
+
+    def setUpHotKeys(self):
+        self.keyBoardShortCuts = self.EntitySelectionCallback(self, self.entities)
+
+    def _check_and_transition_view_state(self):
+        # transition to view state
+        if (not self.view_state_is_review and sum([ a.get() for a in self.image_view_selector.values() ]) > 0):
+            self.view_state_is_review = True
+            self.save_current_image_index = self.current_image_index
+            # does the currently selected image match the view selections?
+            matches = self._current_selection_matches_view_selection()
+            # if it doesn't match, move back to the first classified image which does match
+            if not matches:
+                found_match = False
+                self.current_image_index = 0
+        # return to normal view mode
+        elif (self.view_state_is_review and sum([ a.get() for a in self.image_view_selector.values() ]) == 0):
+            self.view_state_is_review = False
+            self.current_image_index = self.save_current_image_index
+
+    def _current_selection_matches_view_selection(self):
+        matches = False
+        for entity in self.entities:
+            if self.filenames[self.current_image_index] in self.image_records and \
+            entity in self.image_records[self.filenames[self.current_image_index]].classifications and \
+            self.image_view_selector[entity].get() and \
+            self.image_records[self.filenames[self.current_image_index]].classifications[entity]:
+                matches = True
+        return matches
+
+    def _check_file_index_bounds(self):
+        if (self.current_image_index == -1):
+            self.current_image_index = len(self.filenames) - 1
+            self.wrapped = True
+        if (self.current_image_index == len(self.filenames)):
+            self.current_image_index = 0
+            self.wrapped = True
+
+    def _advance_file_selector(self, forwards=True):
+        self._check_and_transition_view_state()
+        if (self.view_state_is_review):
+            found_match = False
+            while (not found_match):
+                self.current_image_index += 1 if forwards else -1
+                self._check_file_index_bounds()
+                found_match = self._current_selection_matches_view_selection()
+        else:
+            self.current_image_index += 1 if forwards else -1
+            self._check_file_index_bounds()
 
     def previous(self):
         self.previous_image(save=False)
@@ -220,7 +296,6 @@ class Window(Frame):
             if (self.sets[s]):
                 random.shuffle(self.sets[s][1])
         self.resize()
-
         self.database = H5ImageDatabase(os.getcwd()+os.sep+self.DB_FILE_NAME)
         self.database.save(self.sets, self.db_image_height, self.db_image_width)
 
@@ -230,11 +305,15 @@ class Window(Frame):
 
     def init_window(self):
         self.master.title("Manual Image Classifier")
+        self.setUpHotKeys()
         self.pack(fill=BOTH, expand=1)
         self.next_image(save=False)
 
     def _save_current_image_to_memory(self):
         self.image_records[self.current_filename] = ImageRecord()
+        if (self.cv2_image.shape[0] != self.db_image_height or self.cv2_image.shape[1] != self.db_image_width):
+            print("RESIZING IN _save_current_image_to_memory")
+            self.cv2_image = cv2.resize(self.cv2_image, (self.db_image_width, self.db_image_height), interpolation=cv2.INTER_CUBIC)
         self.image_records[self.current_filename].cv2_image = self.cv2_image
         for entity in self.entities:
             self.image_records[self.current_filename].classifications[entity] = self.image_presences[entity].get()
@@ -243,27 +322,21 @@ class Window(Frame):
         if (save):
             self._save_current_image_to_memory()
         self._reset_image_presences()
-        self.current_image_index -= 1
-        if (self.current_image_index == -1):
-            self.current_image_index = len(self.filenames) - 1
-            self.wrapped = True
+        self._advance_file_selector(forwards = False)
         self._show_chosen_image()
 
     def next_image(self, save=True):
         if (save):
             self._save_current_image_to_memory()
         self._reset_image_presences()
-        self.current_image_index += 1
-        if (self.current_image_index == len(self.filenames)):
-            self.current_image_index = 0
-            self.wrapped = True
+        self._advance_file_selector(forwards = True)
         self._show_chosen_image()
     
     def _show_chosen_image_from_memory(self, filename):
         record = self.image_records[filename]
         self._reset_image_presences()
         self.cv2_image = record.cv2_image
-        self.converted_image = ImageTk.PhotoImage(Image.fromarray(self.cv2_image))
+        self.converted_image = ImageTk.PhotoImage(Image.fromarray(cv2.resize(self.cv2_image.copy(), (self.db_image_width * self.IMAGE_DISPLAY_ZOOM, self.db_image_height * self.IMAGE_DISPLAY_ZOOM), interpolation=cv2.INTER_CUBIC)))
         for entity in self.entities:
             if (record.classifications[entity]):
                 self.entityCheckBoxes[entity].select()
@@ -278,9 +351,9 @@ class Window(Frame):
             return
         self._reset_image_presences()
         self.cv2_image = cv2.imread(self.current_filename)
-        self.cv2_image = cv2.resize(self.cv2_image, (self.db_image_width, self.db_image_height), interpolation=cv2.INTER_CUBIC)
         self.cv2_image = cv2.cvtColor(self.cv2_image, cv2.COLOR_BGR2RGB)
-        self.converted_image = ImageTk.PhotoImage(Image.fromarray(self.cv2_image))
+        self.converted_image = ImageTk.PhotoImage(Image.fromarray(cv2.resize(self.cv2_image.copy(), (self.db_image_width * self.IMAGE_DISPLAY_ZOOM, self.db_image_height * self.IMAGE_DISPLAY_ZOOM), interpolation=cv2.INTER_CUBIC)))
+        self.cv2_image = cv2.resize(self.cv2_image, (self.db_image_width, self.db_image_height), interpolation=cv2.INTER_CUBIC)
         self.resize(None)
 
     def _get_summary_stats(self):
@@ -340,6 +413,29 @@ class Window(Frame):
         def __call__(self):
             self.owner.image_presences[self.person] = IntVar(value=1)
 
+    class EntitySelectionCallback():
+
+        def __init__(self, frame, entities):
+            self.frame = frame
+            self.entities = entities
+            self.frame.bind("<Key>", self)
+        
+        def __call__(self, event):
+            try:
+                if (not event.char):
+                    return
+                idx = ord(str(event.char))-ord('1')
+                # this is the case if the user pressed the enter key
+                if (idx == -36):
+                    self.frame.next_and_save()
+                # otherwise, assume it's a digit
+                else:
+                    if (idx < len(self.entities)):
+                        self.frame.entityCheckBoxes[self.entities[idx]].toggle()
+            # handle any other key presses
+            except KeyError:
+                print("index out of bounds on entry " + event.char)
+
 root=Tk()
 
 config = configparser.ConfigParser()
@@ -355,6 +451,7 @@ if (percentage_training + percentage_dev + percentage_test != 100):
     print("training, dev and test set percentages do notsum to 100 - check config.ini")
     exit(1)
 app = Window(entities, image_dir, db_image_height, db_image_width, percentage_training, percentage_dev, percentage_test, root)
+app.focus_set()
 root.mainloop()
 
 
